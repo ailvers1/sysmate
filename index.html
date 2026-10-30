@@ -1,7 +1,31 @@
 <!doctype html>
-<html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="referrer" content="no-referrer"><title>자산 QR 스캔</title>
-<style>*{box-sizing:border-box}body{margin:0;background:#f5f7fa;color:#17343d;font-family:Arial,'Malgun Gothic',sans-serif}main{max-width:520px;margin:auto;padding:24px 18px}section{background:#fff;padding:22px;border:1px solid #dce5e8;border-radius:16px;margin:18px 0}h1{font-size:27px}p{line-height:1.7;font-size:14px}button,input,a.action{font:inherit;padding:14px;border-radius:10px;width:100%;margin:8px 0}button,a.action{background:#086a5b;border:0;color:white;font-weight:bold;min-height:48px;cursor:pointer}button:disabled{opacity:.5}input{border:1px solid #bdced3}a.action{display:block;text-align:center;text-decoration:none}video{width:100%;max-height:50vh;background:#142b34;border-radius:12px}#message{white-space:pre-line;overflow-wrap:anywhere;background:#eaf3f0;padding:14px;border-radius:10px}[hidden]{display:none!important}.secondary{background:#e7edef;color:#25454d}</style></head>
-<body><main><p>자산 실사 · QR 스캔</p><h1>라벨을 비춰 주세요.</h1><p>QR을 인식하면 소유자·부서·사용장소 화면으로 바로 이동합니다. 카메라 영상은 기기 안에서만 처리하며 전송하거나 저장하지 않습니다.</p>
-<section><button id="start">카메라 열기</button><button id="stop" class="secondary" hidden>카메라 닫기</button><video id="video" autoplay muted playsinline hidden></video><p id="message" role="status" aria-live="polite">Chrome 또는 삼성 인터넷에서 이 페이지를 직접 열어 주세요.</p><a id="result" class="action" hidden>인식한 자산 열기</a></section>
-<section><label for="code">관리번호 직접 입력</label><input id="code" placeholder="A-01-2019-0054" maxlength="80" autocomplete="off"><p>영어·숫자만 입력하세요. 하이픈은 자동으로 붙고, 번호가 완성되면 이동합니다.</p><button id="lookup">바로 조회</button></section></main>
-<script src="jsQR.js"></script><script src="scanner.js?v=5"></script></body></html>
+<html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="referrer" content="no-referrer"><title>SYSMATE QR 스캔</title>
+<style>
+*{box-sizing:border-box}[hidden]{display:none!important}
+body{margin:0;background:#101a25;color:#fff;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Malgun Gothic',sans-serif}
+main{height:100vh;height:100dvh;min-height:420px;display:grid;grid-template-rows:auto minmax(180px,1fr) auto}
+header{display:flex;align-items:center;justify-content:space-between;gap:16px;background:#fff;color:#273e53;padding:10px max(16px,env(safe-area-inset-right)) 10px max(16px,env(safe-area-inset-left));border-bottom:2px solid #1968ac}
+header img{width:104px;height:auto;display:block}h1{font-size:15px;font-weight:600;margin:0}
+.camera{position:relative;min-height:0;width:100%;display:grid;place-items:center;overflow:hidden;background:#101a25}
+video{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:#101a25}
+button,input,a{font:inherit}button{min-height:44px;border:0;border-radius:4px;padding:11px 18px;background:#1968ac;color:#fff;font-weight:600;cursor:pointer}
+button:disabled{opacity:.6}button:focus-visible,a:focus-visible,input:focus{outline:3px solid #81bafa;outline-offset:2px}
+#start{position:relative;z-index:2;display:flex;align-items:center;gap:10px;padding:14px 24px;font-size:16px}
+#start svg{width:24px;height:24px}.camera:has(video:not([hidden])) #start{display:none}
+#stop{position:absolute;top:12px;right:12px;z-index:3;background:#142434d9;border:1px solid #92a6b9}
+footer{background:#fff;color:#283e50;padding:10px max(16px,env(safe-area-inset-right)) max(12px,env(safe-area-inset-bottom)) max(16px,env(safe-area-inset-left))}
+#message{margin:0 0 10px;font-size:13px;line-height:1.5;color:#43647f;white-space:pre-line;overflow-wrap:anywhere}#message:empty{display:none}
+.manual{display:flex;gap:8px;max-width:760px;margin:auto;align-items:center}
+input{min-width:0;flex:1;width:100%;height:44px;border:1px solid #b9cbdc;border-radius:4px;padding:10px 12px;font-size:16px}
+#lookup{flex-shrink:0}.back{color:#326a98;text-decoration:none;font-size:13px;white-space:nowrap}
+.action{display:block;color:#1968ac;padding:8px 0}
+@media(orientation:landscape) and (max-height:500px){header{padding-top:5px;padding-bottom:5px}header img{width:85px}footer{padding-top:6px;padding-bottom:6px}#message{margin-bottom:5px}main{min-height:280px}}
+footer:has(#message:empty):has(#result[hidden]){display:none}
+</style></head><body><main>
+<header><img src="https://www.sysmate.co.kr/assets/img/logo.png" alt="SYSMATE" referrerpolicy="no-referrer"><h1>QR 스캔</h1><a class="back" href="https://script.google.com/macros/s/AKfycbyQjy5N30aaxIEOIpxTH2hgUhXkumoYUV6zSudzOeVlLqw0zMWFmiydq80Qi0JdcS9r/exec">자산 검색</a></header>
+<section class="camera" aria-label="QR 카메라">
+<video id="video" autoplay muted playsinline hidden></video>
+<button id="start"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M8 5l2-2h4l2 2h4a2 2 0 012 2v12a2 2 0 01-2 2H4a2 2 0 01-2-2V7a2 2 0 012-2z"/><circle cx="12" cy="12" r="4"/></svg>카메라 열기</button>
+<button id="stop" hidden>닫기</button></section>
+<footer><p id="message" role="status" aria-live="polite"></p><a id="result" class="action" hidden>인식한 자산 열기</a><div class="manual" hidden><input id="code" aria-label="관리번호 직접 입력" placeholder="A-01-1234-1234" maxlength="80" autocomplete="off"><button id="lookup">검색</button></div></footer>
+</main><script src="jsQR.js"></script><script src="scanner.js?v=5"></script></body></html>
