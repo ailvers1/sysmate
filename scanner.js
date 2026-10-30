@@ -19,7 +19,9 @@ async function acquireCamera(){
   try{return await navigator.mediaDevices.getUserMedia({audio:false,video:{facingMode:{ideal:'environment'},width:{ideal:1280},height:{ideal:720}}});}
   catch(error){if(error.name!=='OverconstrainedError')throw error;return navigator.mediaDevices.getUserMedia({audio:false,video:true});}
 }
-function found(value){const code=normalizeCode(value);if(!code)return false;stop();el('code').value=code;const link=el('result');link.href=assetUrl(code);link.textContent=code+' · 자산 열기';link.hidden=false;message('관리번호를 인식했습니다. 아래 버튼으로 해당 자산을 확인하세요.');return true;}
+let navigating=false,inputTimer=null;
+function navigateAsset(code){if(navigating)return;const url=assetUrl(code);navigating=true;clearTimeout(inputTimer);stop();message('자산의 소유자·부서·사용장소를 불러옵니다.');window.location.assign(url);}
+function found(value){const code=normalizeCode(value);if(!code)return false;el('code').value=code;navigateAsset(code);return true;}
 async function start(){
   stop();const run=generation;el('start').disabled=true;el('stop').hidden=false;el('result').hidden=true;
   try{
@@ -34,6 +36,7 @@ async function start(){
   }catch(error){if(run===generation){stop();message(cameraError(error));}}
 }
 el('start').onclick=start;el('stop').onclick=stop;
-el('lookup').onclick=()=>{try{const url=assetUrl(el('code').value);stop();window.location.assign(url);}catch(error){message(error.message);}};
+el('lookup').onclick=()=>{try{navigateAsset(el('code').value);}catch(error){message(error.message);}};
+el('code').addEventListener('input',()=>{clearTimeout(inputTimer);const code=normalizeCode(el('code').value);if(code&&/^[A-Z]-\d{2}-\d{4}-\d{4}$/.test(code))inputTimer=setTimeout(()=>navigateAsset(code),650);});
 el('code').addEventListener('keydown',e=>{if(e.key==='Enter')el('lookup').click();});
-window.addEventListener('pagehide',stop);document.addEventListener('visibilitychange',()=>{if(document.hidden)stop();});
+window.addEventListener('pagehide',()=>{clearTimeout(inputTimer);stop();});window.addEventListener('pageshow',()=>{navigating=false;});document.addEventListener('visibilitychange',()=>{if(document.hidden){clearTimeout(inputTimer);stop();}});
