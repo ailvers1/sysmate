@@ -21,10 +21,11 @@ async function acquireCamera(){
 }
 function formatManagementInput(input){
   const raw=input.value, before=raw.slice(0,input.selectionStart??raw.length).replace(/[^a-z0-9]/gi,'').length;
-  const clean=raw.toUpperCase().replace(/[^A-Z0-9]/g,'').slice(0,11);
-  const formatted=[clean.slice(0,1),clean.slice(1,3),clean.slice(3,7),clean.slice(7,11)].filter(Boolean).join('-');
+  const normalized=raw.toUpperCase().replace(/[^A-Z0-9]/g,''),prefix=/^[A-Z]{2}/.test(normalized)?2:1;
+  const clean=normalized.slice(0,prefix+10);
+  const formatted=[clean.slice(0,prefix),clean.slice(prefix,prefix+2),clean.slice(prefix+2,prefix+6),clean.slice(prefix+6,prefix+10)].filter(Boolean).join('-');
   input.value=formatted;
-  const n=Math.min(before,clean.length),caret=n+(n>1?1:0)+(n>3?1:0)+(n>7?1:0);
+  const n=Math.min(before,clean.length),caret=n+(n>prefix?1:0)+(n>prefix+2?1:0)+(n>prefix+6?1:0);
   if(input.setSelectionRange)input.setSelectionRange(caret,caret);
   return formatted;
 }
@@ -46,6 +47,6 @@ async function start(){
 }
 el('start').onclick=start;el('stop').onclick=stop;
 el('lookup').onclick=()=>{try{navigateAsset(el('code').value);}catch(error){message(error.message);}};
-el('code').addEventListener('input',()=>{clearTimeout(inputTimer);const code=formatManagementInput(el('code'));if(code&&/^[A-Z]-\d{2}-\d{4}-\d{4}$/.test(code))inputTimer=setTimeout(()=>navigateAsset(code),650);});
+el('code').addEventListener('input',()=>{clearTimeout(inputTimer);const code=formatManagementInput(el('code'));if(code&&/^[A-Z]{1,2}-\d{2}-\d{4}-\d{4}$/.test(code))inputTimer=setTimeout(()=>navigateAsset(code),650);});
 el('code').addEventListener('keydown',e=>{if(e.key==='Enter')el('lookup').click();});
 window.addEventListener('pagehide',()=>{clearTimeout(inputTimer);stop();});window.addEventListener('pageshow',()=>{navigating=false;});document.addEventListener('visibilitychange',()=>{if(document.hidden){clearTimeout(inputTimer);stop();}});
