@@ -20,7 +20,7 @@ async function acquireCamera(){
   catch(error){if(error.name!=='OverconstrainedError')throw error;return navigator.mediaDevices.getUserMedia({audio:false,video:true});}
 }
 let navigating=false,inputTimer=null;
-function navigateAsset(code){if(navigating)return;const url=assetUrl(code);navigating=true;clearTimeout(inputTimer);stop();message('자산의 소유자·부서·사용장소를 불러옵니다.');window.location.assign(url);}
+function navigateAsset(code){if(navigating)return;const url=assetUrl(code);navigating=true;clearTimeout(inputTimer);stop();message('자산의 소유자·부서·사용장소를 불러옵니다.');window.location.replace(url);}
 function found(value){const code=normalizeCode(value);if(!code)return false;el('code').value=code;navigateAsset(code);return true;}
 async function start(){
   stop();const run=generation;el('start').disabled=true;el('stop').hidden=false;el('result').hidden=true;
