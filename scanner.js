@@ -19,6 +19,15 @@ async function acquireCamera(){
   try{return await navigator.mediaDevices.getUserMedia({audio:false,video:{facingMode:{ideal:'environment'},width:{ideal:1280},height:{ideal:720}}});}
   catch(error){if(error.name!=='OverconstrainedError')throw error;return navigator.mediaDevices.getUserMedia({audio:false,video:true});}
 }
+function formatManagementInput(input){
+  const raw=input.value, before=raw.slice(0,input.selectionStart??raw.length).replace(/[^a-z0-9]/gi,'').length;
+  const clean=raw.toUpperCase().replace(/[^A-Z0-9]/g,'').slice(0,11);
+  const formatted=[clean.slice(0,1),clean.slice(1,3),clean.slice(3,7),clean.slice(7,11)].filter(Boolean).join('-');
+  input.value=formatted;
+  const n=Math.min(before,clean.length),caret=n+(n>1?1:0)+(n>3?1:0)+(n>7?1:0);
+  if(input.setSelectionRange)input.setSelectionRange(caret,caret);
+  return formatted;
+}
 let navigating=false,inputTimer=null;
 function navigateAsset(code){if(navigating)return;const url=assetUrl(code);navigating=true;clearTimeout(inputTimer);stop();message('자산의 소유자·부서·사용장소를 불러옵니다.');window.location.replace(url);}
 function found(value){const code=normalizeCode(value);if(!code)return false;el('code').value=code;navigateAsset(code);return true;}
@@ -37,6 +46,6 @@ async function start(){
 }
 el('start').onclick=start;el('stop').onclick=stop;
 el('lookup').onclick=()=>{try{navigateAsset(el('code').value);}catch(error){message(error.message);}};
-el('code').addEventListener('input',()=>{clearTimeout(inputTimer);const code=normalizeCode(el('code').value);if(code&&/^[A-Z]-\d{2}-\d{4}-\d{4}$/.test(code))inputTimer=setTimeout(()=>navigateAsset(code),650);});
+el('code').addEventListener('input',()=>{clearTimeout(inputTimer);const code=formatManagementInput(el('code'));if(code&&/^[A-Z]-\d{2}-\d{4}-\d{4}$/.test(code))inputTimer=setTimeout(()=>navigateAsset(code),650);});
 el('code').addEventListener('keydown',e=>{if(e.key==='Enter')el('lookup').click();});
 window.addEventListener('pagehide',()=>{clearTimeout(inputTimer);stop();});window.addEventListener('pageshow',()=>{navigating=false;});document.addEventListener('visibilitychange',()=>{if(document.hidden){clearTimeout(inputTimer);stop();}});
