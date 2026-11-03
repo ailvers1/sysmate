@@ -1,16 +1,16 @@
 <!doctype html>
-<html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="referrer" content="no-referrer"><title>SYSMATE QR 스캔</title>
+<html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="referrer" content="no-referrer"><title>QR 스캔</title>
 <style>
 *{box-sizing:border-box}[hidden]{display:none!important}
 body{margin:0;background:#101a25;color:#fff;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Malgun Gothic',sans-serif}
-main{height:100vh;height:100dvh;min-height:420px;display:grid;grid-template-rows:auto minmax(180px,1fr) auto}
+main{height:100vh;height:100dvh;min-height:420px;display:grid;grid-template-rows:minmax(180px,1fr) auto}
 header{display:flex;align-items:center;justify-content:space-between;gap:16px;background:#fff;color:#273e53;padding:10px max(16px,env(safe-area-inset-right)) 10px max(16px,env(safe-area-inset-left));border-bottom:2px solid #1968ac}
 header img{width:104px;height:auto;display:block}h1{font-size:15px;font-weight:600;margin:0}
 .camera{position:relative;min-height:0;width:100%;display:grid;place-items:center;overflow:hidden;background:#101a25}
 video{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:#101a25}
 button,input,a{font:inherit}button{min-height:44px;border:0;border-radius:4px;padding:11px 18px;background:#1968ac;color:#fff;font-weight:600;cursor:pointer}
 button:disabled{opacity:.6}button:focus-visible,a:focus-visible,input:focus{outline:3px solid #81bafa;outline-offset:2px}
-#start{position:relative;z-index:2;display:flex;align-items:center;gap:10px;padding:14px 24px;font-size:16px}
+#start{position:absolute;inset:0;width:100%;height:100%;z-index:2;display:flex;align-items:center;justify-content:center;gap:10px;padding:24px;font-size:18px;border-radius:0;background:transparent}
 #start svg{width:24px;height:24px}.camera:has(video:not([hidden])) #start{display:none}
 #stop{position:absolute;top:12px;right:12px;z-index:3;background:#142434d9;border:1px solid #92a6b9}
 footer{background:#fff;color:#283e50;padding:10px max(16px,env(safe-area-inset-right)) max(12px,env(safe-area-inset-bottom)) max(16px,env(safe-area-inset-left))}
@@ -22,10 +22,10 @@ input{min-width:0;flex:1;width:100%;height:44px;border:1px solid #b9cbdc;border-
 @media(orientation:landscape) and (max-height:500px){header{padding-top:5px;padding-bottom:5px}header img{width:85px}footer{padding-top:6px;padding-bottom:6px}#message{margin-bottom:5px}main{min-height:280px}}
 footer:has(#message:empty):has(#result[hidden]){display:none}
 </style></head><body><main>
-<header><img src="https://www.sysmate.co.kr/assets/img/logo.png" alt="SYSMATE" referrerpolicy="no-referrer"><h1>QR 스캔</h1><a class="back" href="https://script.google.com/macros/s/AKfycbyQjy5N30aaxIEOIpxTH2hgUhXkumoYUV6zSudzOeVlLqw0zMWFmiydq80Qi0JdcS9r/exec">자산 검색</a></header>
+
 <section class="camera" aria-label="QR 카메라">
 <video id="video" autoplay muted playsinline hidden></video>
 <button id="start"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M8 5l2-2h4l2 2h4a2 2 0 012 2v12a2 2 0 01-2 2H4a2 2 0 01-2-2V7a2 2 0 012-2z"/><circle cx="12" cy="12" r="4"/></svg>카메라 열기</button>
 <button id="stop" hidden>닫기</button></section>
 <footer><p id="message" role="status" aria-live="polite"></p><a id="result" class="action" hidden>인식한 자산 열기</a><div class="manual" hidden><input id="code" aria-label="관리번호 직접 입력" placeholder="A-01-1234-1234" maxlength="80" autocomplete="off"><button id="lookup">검색</button></div></footer>
-</main><script src="jsQR.js"></script><script src="scanner.js?v=5"></script></body></html>
+</main><script src="jsQR.js"></script><script src="scanner.js?v=6"></script></body></html>
