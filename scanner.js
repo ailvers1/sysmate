@@ -30,7 +30,7 @@ function formatManagementInput(input){
   return formatted;
 }
 let navigating=false,inputTimer=null;
-function navigateAsset(code){if(navigating)return;const url=assetUrl(code);navigating=true;clearTimeout(inputTimer);stop();message('자산의 소유자·부서·사용장소를 불러옵니다.');window.location.replace(url);}
+function navigateAsset(code){if(navigating)return;const url=assetUrl(code);navigating=true;clearTimeout(inputTimer);stop();message('확인 중입니다. 잠시만 기다려 주세요.');const overlay=document.createElement('div');overlay.id='loading';overlay.setAttribute('role','status');overlay.setAttribute('aria-live','polite');overlay.textContent='확인 중입니다. 잠시만 기다려 주세요.';overlay.style.cssText='position:fixed;inset:0;z-index:100;display:grid;place-items:center;text-align:center;padding:24px;background:#101a25;color:#fff;font-size:20px;line-height:1.7';document.body.appendChild(overlay);requestAnimationFrame(()=>requestAnimationFrame(()=>window.location.replace(url)));}
 function found(value){const code=normalizeCode(value);if(!code)return false;el('code').value=code;navigateAsset(code);return true;}
 async function start(){
   stop();const run=generation;el('start').disabled=true;el('stop').hidden=false;el('result').hidden=true;message('카메라를 여는 중입니다. 권한 요청이 나오면 허용해 주세요.');
@@ -49,4 +49,4 @@ el('start').onclick=start;el('stop').onclick=stop;
 el('lookup').onclick=()=>{try{navigateAsset(el('code').value);}catch(error){message(error.message);}};
 el('code').addEventListener('input',()=>{clearTimeout(inputTimer);const code=formatManagementInput(el('code'));if(code&&/^[A-Z]{1,2}-\d{2}-\d{4}-\d{4}$/.test(code))inputTimer=setTimeout(()=>navigateAsset(code),650);});
 el('code').addEventListener('keydown',e=>{if(e.key==='Enter')el('lookup').click();});
-window.addEventListener('pagehide',()=>{clearTimeout(inputTimer);stop();});window.addEventListener('pageshow',()=>{navigating=false;start();});document.addEventListener('visibilitychange',()=>{if(document.hidden){clearTimeout(inputTimer);stop();}});
+window.addEventListener('pagehide',()=>{clearTimeout(inputTimer);stop();});window.addEventListener('pageshow',()=>{navigating=false;el('loading')?.remove();start();});document.addEventListener('visibilitychange',()=>{if(document.hidden){clearTimeout(inputTimer);stop();}});
