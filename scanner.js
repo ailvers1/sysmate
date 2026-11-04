@@ -3,12 +3,12 @@ const APP_URL='https://script.google.com/macros/s/AKfycbyQjy5N30aaxIEOIpxTH2hgUh
 const el=id=>document.getElementById(id);
 let stream=null,generation=0;
 const compareMode=new URL(window.location.href).searchParams.get('compare')==='1';
-let lastDecoded='',cameraLabels=[];
+let lastDecoded='',cameraLabels=[],cameraSelection=[];
 const canvas=document.createElement('canvas'),ctx=canvas.getContext('2d',{willReadFrequently:true});
 function normalizeCode(value){const code=String(value||'').trim().toUpperCase();return code.length<=80&&/^[A-Z0-9]+(?:-[A-Z0-9]+){2,5}$/.test(code)?code:null;}
 function assetUrl(code){const valid=normalizeCode(code);if(!valid)throw new Error('관리번호 형식을 확인해 주세요.');const url=new URL(APP_URL);url.searchParams.set('code',valid);return url.href;}
 function message(text){el('message').textContent=text;}
-function stop(){generation++;document.getElementById('focus-marker')?.remove();if(stream)stream.getTracks().forEach(t=>t.stop());stream=null;el('video').srcObject=null;el('video').hidden=true;if(el('scan-guide'))el('scan-guide').hidden=true;el('stop').hidden=true;el('start').disabled=false;}
+function stop(){generation++;document.getElementById('focus-marker')?.remove();if(stream)stream.getTracks().forEach(t=>t.stop());stream=null;el('video').srcObject=null;el('video').hidden=true;if(el('scan-guide'))el('scan-guide').hidden=true;el('stop').hidden=true;el('start').disabled=false;el('start').hidden=false;}
 function cameraError(error){
   const policy=document.permissionsPolicy||document.featurePolicy;
   if(policy?.allowsFeature&&!policy.allowsFeature('camera'))return '이 페이지가 다른 앱이나 사이트 안에 삽입되어 카메라가 차단되었습니다. 스캔 페이지 주소를 Chrome 또는 삼성 인터넷의 새 탭에서 직접 열어 주세요.';
@@ -17,31 +17,76 @@ function cameraError(error){
   if(error.name==='NotReadableError'||error.name==='AbortError')return '다른 앱에서 카메라를 사용 중일 수 있습니다. 카메라 앱을 닫고 다시 눌러 주세요.';
   return error.message||'카메라를 시작하지 못했습니다. 관리번호로 검색할 수 있습니다.';
 }
-function preferredRearCamera(devices){
-  return devices.find(d=>d.kind==='videoinput'&&
-    !/front|selfie|user|전면|ultra|tele|초광각|망원/i.test(d.label)&&
-    /back|rear|environment|후면/i.test(d.label)&&
-    /main|primary|standard|메인|기본|일반|wide[ -]?angle/i.test(d.label));
+function focusModes(track){
+  try{const modes=track.getCapabilities?.().focusMode;return Array.isArray(modes)?modes:null;}catch{return null;}
+}
+function supportsAutoFocus(track){
+  return (focusModes(track)||[]).some(mode=>mode==='continuous'||mode==='single-shot');
+}
+function cameraRequest(video,run,timeoutMs=0){
+  return new Promise((resolve,reject)=>{
+    let settled=false,timer;
+    if(timeoutMs)timer=setTimeout(()=>{settled=true;reject(new DOMException('Camera start timeout','TimeoutError'));},timeoutMs);
+    navigator.mediaDevices.getUserMedia({audio:false,video}).then(candidate=>{
+      if(settled||run!==generation){
+        candidate.getTracks().forEach(t=>t.stop());
+        if(!settled){settled=true;clearTimeout(timer);reject(new DOMException('Camera cancelled','AbortError'));}
+        return;
+      }
+      settled=true;clearTimeout(timer);resolve(candidate);
+    },error=>{if(!settled){settled=true;clearTimeout(timer);reject(error);}});
+  });
 }
 async function acquireCamera(run){
+  cameraSelection=[];
   const video={facingMode:{ideal:'environment'},width:{ideal:1920},height:{ideal:1080}};
   let candidate;
-  try{candidate=await navigator.mediaDevices.getUserMedia({audio:false,video});}
-  catch(error){if(error.name!=='OverconstrainedError')throw error;candidate=await navigator.mediaDevices.getUserMedia({audio:false,video:{facingMode:{ideal:'environment'}}});}
+  try{candidate=await cameraRequest(video,run);}
+  catch(error){if(error.name!=='OverconstrainedError')throw error;candidate=await cameraRequest({facingMode:{ideal:'environment'}},run);}
+  const initialTrack=candidate.getVideoTracks()[0],modes=focusModes(initialTrack);
+  cameraSelection.push((initialTrack.label||'기본 후면')+': '+(modes?.join('/')||'초점 정보 미제공'));
+  let devices=[];
   try{
-    if(run!==generation||!navigator.mediaDevices.enumerateDevices)return candidate;
-    const devices=await Promise.race([navigator.mediaDevices.enumerateDevices(),new Promise(resolve=>setTimeout(()=>resolve([]),700))]);
-    if(run!==generation)return candidate;
-    cameraLabels=devices.filter(d=>d.kind==='videoinput').map(d=>d.label||'이름 미제공');
-    const preferred=preferredRearCamera(devices),current=candidate.getVideoTracks()[0].getSettings?.().deviceId;
-    // Generic camera numbers cannot identify a physical lens. Switch only on an explicit main-camera label.
-    if(preferred&&current&&preferred.deviceId!==current){
-      candidate.getTracks().forEach(t=>t.stop());
-      try{candidate=await navigator.mediaDevices.getUserMedia({audio:false,video:{...video,deviceId:{exact:preferred.deviceId}}});}
-      catch{candidate=await navigator.mediaDevices.getUserMedia({audio:false,video});}
+    if(navigator.mediaDevices.enumerateDevices)devices=await Promise.race([navigator.mediaDevices.enumerateDevices(),new Promise(resolve=>setTimeout(()=>resolve([]),1000))]);
+  }catch{}
+  if(run!==generation){candidate.getTracks().forEach(t=>t.stop());throw new DOMException('Camera cancelled','AbortError');}
+  cameraLabels=devices.filter(d=>d.kind==='videoinput').map(d=>d.label||'이름 미제공');
+  // Retain a working autofocus camera. Missing capabilities alone are not evidence that it cannot focus.
+  if(supportsAutoFocus(initialTrack)||!modes?.length)return candidate;
+  let originalId;
+  try{originalId=initialTrack.getSettings?.().deviceId;}catch{}
+  if(!originalId){
+    const matches=devices.filter(d=>d.kind==='videoinput'&&d.label===initialTrack.label);
+    if(matches.length===1)originalId=matches[0].deviceId;
+  }
+  if(!originalId)return candidate;
+  const alternatives=devices.filter(d=>d.kind==='videoinput'&&d.deviceId&&d.deviceId!==originalId&&
+    /back|rear|environment|후면/i.test(d.label)&&!/front|selfie|전면/i.test(d.label));
+  if(!alternatives.length)return candidate;
+  message('가까운 QR에 초점을 맞출 수 있는 후면 카메라를 확인 중입니다.');
+  candidate.getTracks().forEach(t=>t.stop());
+  for(const device of alternatives){
+    if(run!==generation)throw new DOMException('Camera cancelled','AbortError');
+    let probe;
+    try{
+      probe=await cameraRequest({...video,deviceId:{exact:device.deviceId}},run,3000);
+      const track=probe.getVideoTracks()[0];
+      const modes=focusModes(track);
+      cameraSelection.push((track.label||device.label)+': '+(modes?.join('/')||'초점 정보 미제공'));
+      if(supportsAutoFocus(track)&&track.getSettings?.().facingMode!=='user'){
+        cameraSelection.push('자동초점 후면 선택');
+        return probe;
+      }
+    }catch(error){
+      if(run!==generation)throw error;
+      cameraSelection.push(device.label+': 열기 실패');
     }
-    return candidate;
-  }catch{return candidate;}
+    if(probe)probe.getTracks().forEach(t=>t.stop());
+  }
+  if(run!==generation)throw new DOMException('Camera cancelled','AbortError');
+  cameraSelection.push('자동초점 후면을 찾지 못해 원래 카메라 복원');
+  try{return await cameraRequest({...video,deviceId:{exact:originalId}},run,3000);}
+  catch(error){if(run!==generation)throw error;return cameraRequest(video,run,3000);}
 }
 async function tuneFocus(track,refocus=false,point=null){
   if(!track||typeof track.getCapabilities!=='function'||typeof track.applyConstraints!=='function')return {ok:false,point:false};
@@ -117,11 +162,12 @@ function scanDiagnostics(video,track,run){
     lastPaint=Date.now();
     let settings={};try{settings=track.getSettings?track.getSettings():{};}catch{}
     const resolution=video.videoWidth+'×'+video.videoHeight;
-    const text=[compareMode?(lastDecoded?'QR 인식 성공: '+lastDecoded:'비교 점검 중 · QR을 네모 안에 맞춰 주세요.'):'QR을 네모 안에 맞춰 주세요. 아직 인식되지 않았습니다.',
-      '점검 v11 | 영상 '+resolution+' / 준비 '+video.readyState+' / 재생 '+(!video.paused),
+    const text=[compareMode?(lastDecoded?'최근 QR 인식 성공: '+lastDecoded:'비교 점검 중 · QR을 네모 안에 맞춰 주세요.'):'QR을 네모 안에 맞춰 주세요. 아직 인식되지 않았습니다.',
+      '점검 v12 | 영상 '+resolution+' / 준비 '+video.readyState+' / 재생 '+(!video.paused),
       '검사 '+stats.frames+'회 | 보조 '+stats.js+'회 | 내장 '+stats.nativeState+' '+stats.native+'회',
       '카메라 '+(track.label||'이름 없음')+' | 방향 '+(settings.facingMode||'미제공'),
       '초점 '+(settings.focusMode||stats.focus)+' | 거리 '+(settings.focusDistance??'미제공')+' | 줌 '+(settings.zoom??'미제공')];
+    text.push('카메라 확인 '+cameraSelection.join(' → '));
     if(compareMode){
       text.push('지원 초점 '+(caps.focusMode||[]).join('/')+' | 위치 초점 '+!!navigator.mediaDevices.getSupportedConstraints?.().pointsOfInterest);
       text.push('카메라 목록 '+cameraLabels.join(' / '));
@@ -135,14 +181,14 @@ function scanDiagnostics(video,track,run){
   return {stats,paint};
 }
 async function start(){
-  stop();const run=generation;el('start').disabled=true;el('stop').hidden=false;el('result').hidden=true;message('카메라를 여는 중입니다. 권한 요청이 나오면 허용해 주세요.');
+  stop();lastDecoded='';const run=generation;el('start').disabled=true;el('stop').hidden=false;el('result').hidden=true;message('카메라를 여는 중입니다. 권한 요청이 나오면 허용해 주세요.');
   try{
     if(!window.isSecureContext)throw new Error('HTTPS 주소에서 스캔 페이지를 열어 주세요.');
     const policy=document.permissionsPolicy||document.featurePolicy;
     if(policy?.allowsFeature&&!policy.allowsFeature('camera'))throw new DOMException('Camera policy blocked','NotAllowedError');
     if(!navigator.mediaDevices?.getUserMedia)throw new Error('이 환경은 카메라를 지원하지 않습니다. 최신 Chrome 또는 삼성 인터넷에서 직접 열어 주세요.');
     const candidate=await acquireCamera(run);if(run!==generation){candidate.getTracks().forEach(t=>t.stop());return;}
-    stream=candidate;const video=el('video');video.muted=true;video.srcObject=stream;video.hidden=false;
+    stream=candidate;const video=el('video');video.muted=true;video.srcObject=stream;video.hidden=false;el('start').hidden=true;
     const playback=video.play();if(playback&&typeof playback.catch==='function')playback.catch(error=>{if(run===generation)message('영상 재생이 멈췄습니다. 카메라 화면을 눌러 다시 시작해 주세요.');});
     if(run!==generation)return;
     message('QR을 네모 안에 크게 맞춰 주세요. QR 부분을 누르면 초점을 요청합니다.');
@@ -208,5 +254,6 @@ el('lookup').onclick=()=>{try{navigateAsset(el('code').value);}catch(error){mess
 el('code').addEventListener('input',()=>{clearTimeout(inputTimer);const code=formatManagementInput(el('code'));if(code&&/^[A-Z]{1,2}-\d{2}-\d{4}-\d{4}$/.test(code))inputTimer=setTimeout(()=>navigateAsset(code),650);});
 el('code').addEventListener('keydown',e=>{if(e.key==='Enter')el('lookup').click();});
 window.addEventListener('pagehide',()=>{clearTimeout(inputTimer);stop();});window.addEventListener('pageshow',()=>{navigating=false;el('loading')?.remove();start();});document.addEventListener('visibilitychange',()=>{if(document.hidden){clearTimeout(inputTimer);stop();}else if(!navigating&&!stream){start();}});
+
 
 
