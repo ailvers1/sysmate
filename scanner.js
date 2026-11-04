@@ -16,8 +16,17 @@ function cameraError(error){
   return error.message||'카메라를 시작하지 못했습니다. 관리번호로 검색할 수 있습니다.';
 }
 async function acquireCamera(){
-  try{return await navigator.mediaDevices.getUserMedia({audio:false,video:{facingMode:{ideal:'environment'},width:{ideal:1280},height:{ideal:720}}});}
+  try{return await navigator.mediaDevices.getUserMedia({audio:false,video:{facingMode:{ideal:'environment'},width:{ideal:1920},height:{ideal:1080}}});}
   catch(error){if(error.name!=='OverconstrainedError')throw error;return navigator.mediaDevices.getUserMedia({audio:false,video:true});}
+}
+async function tuneFocus(track,refocus=false){
+ if(!track||typeof track.getCapabilities!=='function'||typeof track.applyConstraints!=='function')return false;
+ let caps;try{caps=track.getCapabilities();}catch{return false;}
+ const modes=Array.isArray(caps.focusMode)?caps.focusMode:[];
+ const mode=refocus&&modes.includes('single-shot')?'single-shot':modes.includes('continuous')?'continuous':modes.includes('single-shot')?'single-shot':null;
+ if(!mode)return false;
+ try{await track.applyConstraints({...track.getConstraints?.(),advanced:[{focusMode:mode}]});
+ if(mode==='single-shot'&&modes.includes('continuous'))await track.applyConstraints({...track.getConstraints?.(),advanced:[{focusMode:'continuous'}]});return true;}catch{return false;}
 }
 function formatManagementInput(input){
   const raw=input.value, before=raw.slice(0,input.selectionStart??raw.length).replace(/[^a-z0-9]/gi,'').length;
@@ -41,10 +50,12 @@ async function start(){
     if(!navigator.mediaDevices?.getUserMedia)throw new Error('이 환경은 카메라를 지원하지 않습니다. 최신 Chrome 또는 삼성 인터넷에서 직접 열어 주세요.');
     const candidate=await acquireCamera();if(run!==generation){candidate.getTracks().forEach(t=>t.stop());return;}
     stream=candidate;const video=el('video');video.muted=true;video.srcObject=stream;video.hidden=false;await video.play();
-    message('QR이 선명하게 보이도록 거리를 조절해 주세요.');
-    const tick=()=>{if(run!==generation)return;try{if(video.readyState>=2&&video.videoWidth){const scale=Math.min(1,1280/video.videoWidth);canvas.width=Math.round(video.videoWidth*scale);canvas.height=Math.round(video.videoHeight*scale);ctx.drawImage(video,0,0,canvas.width,canvas.height);const image=ctx.getImageData(0,0,canvas.width,canvas.height);const code=jsQR(image.data,image.width,image.height,{inversionAttempts:'attemptBoth'});if(code&&found(code.data))return;}}catch(error){stop();message('QR 인식기를 실행하지 못했습니다. 페이지를 새로고침해 주세요.');return;}if(run===generation)setTimeout(tick,180);};tick();
+    const focused=await tuneFocus(stream.getVideoTracks()[0]);if(run!==generation)return;
+    message(focused?'자동초점으로 맞추는 중입니다. QR을 화면 가운데 두세요. 너무 가까우면 조금 떨어뜨려 주세요.':'QR을 화면 가운데 두고, 흐리면 휴대폰을 조금 떨어뜨려 주세요.');
+    let frameNumber=0;const tick=()=>{if(run!==generation)return;try{if(video.readyState>=2&&video.videoWidth){const crop=(frameNumber++%2)?0.7:1,sw=video.videoWidth*crop,sh=video.videoHeight*crop,sx=(video.videoWidth-sw)/2,sy=(video.videoHeight-sh)/2,scale=Math.min(1,1280/sw);canvas.width=Math.round(sw*scale);canvas.height=Math.round(sh*scale);ctx.drawImage(video,sx,sy,sw,sh,0,0,canvas.width,canvas.height);const image=ctx.getImageData(0,0,canvas.width,canvas.height);const code=jsQR(image.data,image.width,image.height,{inversionAttempts:'attemptBoth'});if(code&&found(code.data))return;}}catch(error){stop();message('QR 인식기를 실행하지 못했습니다. 페이지를 새로고침해 주세요.');return;}if(run===generation)setTimeout(tick,180);};tick();
   }catch(error){if(run===generation){stop();message(cameraError(error));}}
 }
+el('video').addEventListener('click',async()=>{if(!stream||navigating)return;const active=stream,ok=await tuneFocus(active.getVideoTracks()[0],true);if(stream===active)message(ok?'초점을 다시 맞추고 있습니다. 잠시 움직이지 말아 주세요.':'흐리면 QR에서 조금 떨어뜨린 뒤 천천히 가까이 가져가 주세요.');});
 el('start').onclick=start;el('stop').onclick=stop;
 el('lookup').onclick=()=>{try{navigateAsset(el('code').value);}catch(error){message(error.message);}};
 el('code').addEventListener('input',()=>{clearTimeout(inputTimer);const code=formatManagementInput(el('code'));if(code&&/^[A-Z]{1,2}-\d{2}-\d{4}-\d{4}$/.test(code))inputTimer=setTimeout(()=>navigateAsset(code),650);});
