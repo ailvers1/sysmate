@@ -48,6 +48,25 @@ async function createNativeDetector(){
     return formats.includes('qr_code')?new window.BarcodeDetector({formats:['qr_code']}):null;
   }catch{return null;}
 }
+function scanDiagnostics(video,track,run){
+  const stats={frames:0,js:0,native:0,nativeState:'확인 중',focus:'확인 중',lastError:'',invalid:''};
+  const started=Date.now();let lastPaint=0;
+  const paint=()=>{
+    if(run!==generation||navigating||Date.now()-started<8000||Date.now()-lastPaint<2000)return;
+    lastPaint=Date.now();
+    let settings={};try{settings=track.getSettings?track.getSettings():{};}catch{}
+    const resolution=video.videoWidth+'×'+video.videoHeight;
+    const text=['QR을 아직 찾지 못했습니다. 아래 점검 정보를 알려주세요.',
+      '점검 v9 | 영상 '+resolution+' / 준비 '+video.readyState+' / 재생 '+(!video.paused),
+      '검사 '+stats.frames+'회 | 보조 '+stats.js+'회 | 내장 '+stats.nativeState+' '+stats.native+'회',
+      '카메라 '+(track.label||'이름 없음')+' | 방향 '+(settings.facingMode||'미제공'),
+      '초점 '+(settings.focusMode||stats.focus)];
+    if(stats.lastError)text.push('오류 '+stats.lastError);
+    if(stats.invalid)text.push('읽은 내용 '+stats.invalid);
+    message(text.join('\n'));
+  };
+  return {stats,paint};
+}
 async function start(){
   stop();const run=generation;el('start').disabled=true;el('stop').hidden=false;el('result').hidden=true;message('카메라를 여는 중입니다. 권한 요청이 나오면 허용해 주세요.');
   try{
@@ -56,22 +75,27 @@ async function start(){
     if(policy?.allowsFeature&&!policy.allowsFeature('camera'))throw new DOMException('Camera policy blocked','NotAllowedError');
     if(!navigator.mediaDevices?.getUserMedia)throw new Error('이 환경은 카메라를 지원하지 않습니다. 최신 Chrome 또는 삼성 인터넷에서 직접 열어 주세요.');
     const candidate=await acquireCamera();if(run!==generation){candidate.getTracks().forEach(t=>t.stop());return;}
-    stream=candidate;const video=el('video');video.muted=true;video.srcObject=stream;video.hidden=false;await video.play();
+    stream=candidate;const video=el('video');video.muted=true;video.srcObject=stream;video.hidden=false;
+    const playback=video.play();if(playback&&typeof playback.catch==='function')playback.catch(error=>{if(run===generation)message('영상 재생이 멈췄습니다. 카메라 화면을 눌러 다시 시작해 주세요.');});
     if(run!==generation)return;
     message('QR을 화면 가운데 두세요. 화면을 누르면 초점을 다시 맞춥니다.');
     // Focus and native detection must never hold up the fallback scan loop.
-    void tuneFocus(stream.getVideoTracks()[0]);
+    const track=stream.getVideoTracks()[0],health=scanDiagnostics(video,track,run),stats=health.stats;
+    void tuneFocus(track).then(ok=>{stats.focus=ok?'설정 적용':'자동 설정 미지원';});
     let detector=null,nativeBusy=false,frameNumber=0;
-    void createNativeDetector().then(value=>{if(run===generation)detector=value;});
+    void createNativeDetector().then(value=>{if(run===generation){detector=value;stats.nativeState=value?'사용':'미지원';}});
     const tick=()=>{
       if(run!==generation)return;
+      health.paint();
       if(video.readyState>=2&&video.videoWidth&&video.videoHeight){
+        stats.frames++;
         if(detector&&!nativeBusy){
           const active=detector;nativeBusy=true;
           Promise.resolve().then(()=>active.detect(video)).then(codes=>{
             if(run!==generation)return;
-            for(const code of codes){if(found(code.rawValue))break;}
-          }).catch(()=>{if(detector===active)detector=null;}).finally(()=>{nativeBusy=false;});
+            stats.native++;
+            for(const code of codes){if(found(code.rawValue))break;stats.invalid=String(code.rawValue).slice(0,80);}
+          }).catch(error=>{if(detector===active){detector=null;stats.nativeState='오류';stats.lastError=String(error.name||error.message||error).slice(0,100);}}).finally(()=>{nativeBusy=false;});
         }
         try{
           if(ctx&&typeof jsQR==='function'){
@@ -80,11 +104,13 @@ async function start(){
             canvas.width=Math.max(1,Math.round(sw*scale));canvas.height=Math.max(1,Math.round(sh*scale));
             ctx.drawImage(video,(video.videoWidth-sw)/2,(video.videoHeight-sh)/2,sw,sh,0,0,canvas.width,canvas.height);
             const image=ctx.getImageData(0,0,canvas.width,canvas.height);
+            stats.js++;
             const code=jsQR(image.data,image.width,image.height,{inversionAttempts:'attemptBoth'});
-            if(code&&found(code.data))return;
+            if(code){if(found(code.data))return;stats.invalid=String(code.data).slice(0,80);}
           }
         }catch(error){
           // A bad video frame must not permanently stop recognition.
+          stats.lastError=String(error.name||error.message||error).slice(0,100);
           console.warn('QR frame skipped',error);
         }
       }
