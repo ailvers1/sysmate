@@ -2,13 +2,12 @@
 const APP_URL='https://script.google.com/macros/s/AKfycbyQjy5N30aaxIEOIpxTH2hgUhXkumoYUV6zSudzOeVlLqw0zMWFmiydq80Qi0JdcS9r/exec';
 const el=id=>document.getElementById(id);
 let stream=null,generation=0;
-const compareMode=new URL(window.location.href).searchParams.get('compare')==='1';
-let lastDecoded='',cameraLabels=[],cameraSelection=[];
+let cameraLabels=[],cameraSelection=[];
 const canvas=document.createElement('canvas'),ctx=canvas.getContext('2d',{willReadFrequently:true});
 function normalizeCode(value){const code=String(value||'').trim().toUpperCase();return code.length<=80&&/^[A-Z0-9]+(?:-[A-Z0-9]+){2,5}$/.test(code)?code:null;}
 function assetUrl(code){const valid=normalizeCode(code);if(!valid)throw new Error('관리번호 형식을 확인해 주세요.');const url=new URL(APP_URL);url.searchParams.set('code',valid);return url.href;}
-function message(text){el('message').textContent=text;}
-function stop(){generation++;document.getElementById('focus-marker')?.remove();if(stream)stream.getTracks().forEach(t=>t.stop());stream=null;el('video').srcObject=null;el('video').hidden=true;if(el('scan-guide'))el('scan-guide').hidden=true;el('stop').hidden=true;el('start').disabled=false;el('start').hidden=false;}
+function message(text){el('message').textContent=text;const footer=el('message').parentElement;if(footer)footer.hidden=!text;}
+function stop(){generation++;document.getElementById('focus-marker')?.remove();if(stream)stream.getTracks().forEach(t=>t.stop());stream=null;el('video').srcObject=null;el('video').hidden=true;el('stop').hidden=true;el('start').disabled=false;el('start').hidden=false;}
 function cameraError(error){
   const policy=document.permissionsPolicy||document.featurePolicy;
   if(policy?.allowsFeature&&!policy.allowsFeature('camera'))return '이 페이지가 다른 앱이나 사이트 안에 삽입되어 카메라가 차단되었습니다. 스캔 페이지 주소를 Chrome 또는 삼성 인터넷의 새 탭에서 직접 열어 주세요.';
@@ -63,7 +62,7 @@ async function acquireCamera(run){
   const alternatives=devices.filter(d=>d.kind==='videoinput'&&d.deviceId&&d.deviceId!==originalId&&
     /back|rear|environment|후면/i.test(d.label)&&!/front|selfie|전면/i.test(d.label));
   if(!alternatives.length)return candidate;
-  message('가까운 QR에 초점을 맞출 수 있는 후면 카메라를 확인 중입니다.');
+  message('카메라를 준비하는 중입니다.');
   candidate.getTracks().forEach(t=>t.stop());
   for(const device of alternatives){
     if(run!==generation)throw new DOMException('Camera cancelled','AbortError');
@@ -118,7 +117,7 @@ function videoPoint(video,clientX,clientY){
 function showFocusPoint(x,y){
   document.getElementById('focus-marker')?.remove();
   const marker=document.createElement('div');marker.id='focus-marker';marker.setAttribute('aria-hidden','true');
-  marker.style.cssText='position:fixed;z-index:5;pointer-events:none;width:52px;height:52px;border:2px solid #ffdc55;border-radius:8px;transform:translate(-50%,-50%);left:'+x+'px;top:'+y+'px';
+  marker.style.cssText='position:fixed;z-index:5;pointer-events:none;width:52px;height:52px;border:2px solid #ffdc55;border-radius:50%;transform:translate(-50%,-50%);left:'+x+'px;top:'+y+'px';
   document.body.appendChild(marker);setTimeout(()=>marker.remove(),1500);
 }
 function formatManagementInput(input){
@@ -133,7 +132,7 @@ function formatManagementInput(input){
 }
 let navigating=false,inputTimer=null;
 function navigateAsset(code){if(navigating)return;const url=assetUrl(code);navigating=true;clearTimeout(inputTimer);stop();message('확인 중입니다. 잠시만 기다려 주세요.');const overlay=document.createElement('div');overlay.id='loading';overlay.setAttribute('role','status');overlay.setAttribute('aria-live','polite');overlay.textContent='확인 중입니다. 잠시만 기다려 주세요.';overlay.style.cssText='position:fixed;inset:0;z-index:100;display:grid;place-items:center;text-align:center;padding:24px;background:#101a25;color:#fff;font-size:20px;line-height:1.7';document.body.appendChild(overlay);requestAnimationFrame(()=>requestAnimationFrame(()=>window.location.replace(url)));}
-function found(value){const code=normalizeCode(value);if(!code)return false;if(compareMode){lastDecoded=code;return false;}el('code').value=code;navigateAsset(code);return true;}
+function found(value){const code=normalizeCode(value);if(!code)return false;el('code').value=code;navigateAsset(code);return true;}
 async function createNativeDetector(){
   try{
     if(typeof window.BarcodeDetector!=='function')return null;
@@ -141,47 +140,13 @@ async function createNativeDetector(){
     return formats.includes('qr_code')?new window.BarcodeDetector({formats:['qr_code']}):null;
   }catch{return null;}
 }
-function scanRegion(video){
-  const vw=video.videoWidth,vh=video.videoHeight;
-  const r=video.getBoundingClientRect?.();
-  let side=Math.min(vw,vh)*0.78;
-  if(r?.width&&r?.height){
-    const scale=Math.min(r.width/vw,r.height/vh);
-    const size=Math.min(vw*scale*0.78,vh*scale*0.62,320);
-    side=Math.min(vw,vh,size/scale);
-    const guide=el('scan-guide');if(guide){guide.style.width=size+'px';guide.style.height=size+'px';guide.hidden=false;}
-  }
-  return {sx:(vw-side)/2,sy:(vh-side)/2,side};
-}
-function scanDiagnostics(video,track,run){
-  const stats={frames:0,js:0,native:0,nativeState:'확인 중',focus:'확인 중',lastError:'',invalid:''};
-  const started=Date.now();let lastPaint=0;
-  let caps={};try{caps=track.getCapabilities?.()||{};}catch{}
-  const paint=()=>{
-    if(run!==generation||navigating||Date.now()-started<(compareMode?1500:8000)||Date.now()-lastPaint<2000)return;
-    lastPaint=Date.now();
-    let settings={};try{settings=track.getSettings?track.getSettings():{};}catch{}
-    const resolution=video.videoWidth+'×'+video.videoHeight;
-    const text=[compareMode?(lastDecoded?'최근 QR 인식 성공: '+lastDecoded:'비교 점검 중 · QR을 네모 안에 맞춰 주세요.'):'QR을 네모 안에 맞춰 주세요. 아직 인식되지 않았습니다.',
-      '점검 v12 | 영상 '+resolution+' / 준비 '+video.readyState+' / 재생 '+(!video.paused),
-      '검사 '+stats.frames+'회 | 보조 '+stats.js+'회 | 내장 '+stats.nativeState+' '+stats.native+'회',
-      '카메라 '+(track.label||'이름 없음')+' | 방향 '+(settings.facingMode||'미제공'),
-      '초점 '+(settings.focusMode||stats.focus)+' | 거리 '+(settings.focusDistance??'미제공')+' | 줌 '+(settings.zoom??'미제공')];
-    text.push('카메라 확인 '+cameraSelection.join(' → '));
-    if(compareMode){
-      text.push('지원 초점 '+(caps.focusMode||[]).join('/')+' | 위치 초점 '+!!navigator.mediaDevices.getSupportedConstraints?.().pointsOfInterest);
-      text.push('카메라 목록 '+cameraLabels.join(' / '));
-      text.push('브라우저 '+(navigator.userAgent||'미제공'));
-      text.push('비교 점검에서는 자동으로 자산 화면으로 이동하지 않습니다.');
-    }
-    if(stats.lastError)text.push('오류 '+stats.lastError);
-    if(stats.invalid)text.push('읽은 내용 '+stats.invalid);
-    message(text.join('\n'));
-  };
-  return {stats,paint};
+function scanRegion(video,frameNumber){
+  const crop=[1,0.7,0.45][frameNumber%3];
+  const width=video.videoWidth*crop,height=video.videoHeight*crop;
+  return {sx:(video.videoWidth-width)/2,sy:(video.videoHeight-height)/2,width,height};
 }
 async function start(){
-  stop();lastDecoded='';const run=generation;el('start').disabled=true;el('stop').hidden=false;el('result').hidden=true;message('카메라를 여는 중입니다. 권한 요청이 나오면 허용해 주세요.');
+  stop();const run=generation;el('start').disabled=true;el('stop').hidden=false;el('result').hidden=true;message('카메라를 여는 중입니다. 권한 요청이 나오면 허용해 주세요.');
   try{
     if(!window.isSecureContext)throw new Error('HTTPS 주소에서 스캔 페이지를 열어 주세요.');
     const policy=document.permissionsPolicy||document.featurePolicy;
@@ -191,41 +156,36 @@ async function start(){
     stream=candidate;const video=el('video');video.muted=true;video.srcObject=stream;video.hidden=false;el('start').hidden=true;
     const playback=video.play();if(playback&&typeof playback.catch==='function')playback.catch(error=>{if(run===generation)message('영상 재생이 멈췄습니다. 카메라 화면을 눌러 다시 시작해 주세요.');});
     if(run!==generation)return;
-    message('QR을 네모 안에 크게 맞춰 주세요. QR 부분을 누르면 초점을 요청합니다.');
+    message('');
     // Focus and native detection must never hold up the fallback scan loop.
-    const track=stream.getVideoTracks()[0],health=scanDiagnostics(video,track,run),stats=health.stats;
-    void tuneFocus(track).then(result=>{stats.focus=result.ok?'자동초점 요청':'자동 설정 미지원';});
+    const track=stream.getVideoTracks()[0];
+    void tuneFocus(track);
     let detector=null,nativeBusy=false,frameNumber=0;
-    void createNativeDetector().then(value=>{if(run===generation){detector=value;stats.nativeState=value?'사용':'미지원';}});
+    void createNativeDetector().then(value=>{if(run===generation)detector=value;});
     const tick=()=>{
       if(run!==generation)return;
-      health.paint();
       if(video.readyState>=2&&video.videoWidth&&video.videoHeight){
-        stats.frames++;
 
         try{
           if(ctx){
-            const region=scanRegion(video),scale=Math.min(1,1600/region.side);
-            canvas.width=Math.max(1,Math.round(region.side*scale));canvas.height=canvas.width;
-            ctx.drawImage(video,region.sx,region.sy,region.side,region.side,0,0,canvas.width,canvas.height);
+            const region=scanRegion(video,frameNumber++),scale=Math.min(1,1600/Math.max(region.width,region.height));
+            canvas.width=Math.max(1,Math.round(region.width*scale));canvas.height=Math.max(1,Math.round(region.height*scale));
+            ctx.drawImage(video,region.sx,region.sy,region.width,region.height,0,0,canvas.width,canvas.height);
             const image=ctx.getImageData(0,0,canvas.width,canvas.height);
         if(detector&&!nativeBusy){
           const active=detector;nativeBusy=true;
           Promise.resolve().then(()=>active.detect(image)).then(codes=>{
             if(run!==generation)return;
-            stats.native++;
-            for(const code of codes){if(found(code.rawValue))break;if(!normalizeCode(code.rawValue))stats.invalid=String(code.rawValue).slice(0,80);}
-          }).catch(error=>{if(detector===active){detector=null;stats.nativeState='오류';stats.lastError=String(error.name||error.message||error).slice(0,100);}}).finally(()=>{nativeBusy=false;});
+            for(const code of codes){if(found(code.rawValue))break;}
+          }).catch(()=>{if(detector===active)detector=null;}).finally(()=>{nativeBusy=false;});
         }
             if(typeof jsQR==='function'){
-            stats.js++;
             const code=jsQR(image.data,image.width,image.height,{inversionAttempts:'attemptBoth'});
-            if(code){if(found(code.data))return;if(!normalizeCode(code.data))stats.invalid=String(code.data).slice(0,80);}
+            if(code&&found(code.data))return;
             }
           }
         }catch(error){
           // A bad video frame must not permanently stop recognition.
-          stats.lastError=String(error.name||error.message||error).slice(0,100);
           console.warn('QR frame skipped',error);
         }
       }
@@ -234,26 +194,20 @@ async function start(){
     tick();
   }catch(error){if(run===generation){stop();message(cameraError(error));}}
 }
-el('video').addEventListener('click',async event=>{
+el('video').addEventListener('click',event=>{
   if(!stream||navigating)return;
   const video=el('video'),point=videoPoint(video,event.clientX,event.clientY);
   if(!point)return;
   showFocusPoint(event.clientX,event.clientY);
-  const active=stream,run=generation;
   if(video.paused)void video.play().catch(()=>{});
-  message('누른 위치로 초점을 요청하고 있습니다. 잠시 움직이지 말아 주세요.');
-  const result=await tuneFocus(active.getVideoTracks()[0],true,point);
-  if(stream!==active||run!==generation)return;
-  message(result.point?'누른 위치로 초점 설정을 전달했습니다. QR을 잠시 고정해 주세요.':
-    result.requested?'누른 위치로 초점을 요청했습니다. 기기에서 실제 적용 여부를 알려주지 않습니다.':
-    result.ok?'이 브라우저는 위치 초점을 지원하지 않아 일반 자동초점을 다시 요청했습니다.':
-    '이 카메라는 웹에서 초점 조절을 지원하지 않습니다. 조금 떨어져서 비춰 주세요.');
+  void tuneFocus(stream.getVideoTracks()[0],true,point);
 });
 el('start').onclick=start;el('stop').onclick=stop;
 el('lookup').onclick=()=>{try{navigateAsset(el('code').value);}catch(error){message(error.message);}};
 el('code').addEventListener('input',()=>{clearTimeout(inputTimer);const code=formatManagementInput(el('code'));if(code&&/^[A-Z]{1,2}-\d{2}-\d{4}-\d{4}$/.test(code))inputTimer=setTimeout(()=>navigateAsset(code),650);});
 el('code').addEventListener('keydown',e=>{if(e.key==='Enter')el('lookup').click();});
 window.addEventListener('pagehide',()=>{clearTimeout(inputTimer);stop();});window.addEventListener('pageshow',()=>{navigating=false;el('loading')?.remove();start();});document.addEventListener('visibilitychange',()=>{if(document.hidden){clearTimeout(inputTimer);stop();}else if(!navigating&&!stream){start();}});
+
 
 
 
