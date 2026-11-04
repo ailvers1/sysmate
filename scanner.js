@@ -41,6 +41,13 @@ function formatManagementInput(input){
 let navigating=false,inputTimer=null;
 function navigateAsset(code){if(navigating)return;const url=assetUrl(code);navigating=true;clearTimeout(inputTimer);stop();message('확인 중입니다. 잠시만 기다려 주세요.');const overlay=document.createElement('div');overlay.id='loading';overlay.setAttribute('role','status');overlay.setAttribute('aria-live','polite');overlay.textContent='확인 중입니다. 잠시만 기다려 주세요.';overlay.style.cssText='position:fixed;inset:0;z-index:100;display:grid;place-items:center;text-align:center;padding:24px;background:#101a25;color:#fff;font-size:20px;line-height:1.7';document.body.appendChild(overlay);requestAnimationFrame(()=>requestAnimationFrame(()=>window.location.replace(url)));}
 function found(value){const code=normalizeCode(value);if(!code)return false;el('code').value=code;navigateAsset(code);return true;}
+async function createNativeDetector(){
+  try{
+    if(typeof window.BarcodeDetector!=='function')return null;
+    const formats=await window.BarcodeDetector.getSupportedFormats();
+    return formats.includes('qr_code')?new window.BarcodeDetector({formats:['qr_code']}):null;
+  }catch{return null;}
+}
 async function start(){
   stop();const run=generation;el('start').disabled=true;el('stop').hidden=false;el('result').hidden=true;message('카메라를 여는 중입니다. 권한 요청이 나오면 허용해 주세요.');
   try{
@@ -50,9 +57,40 @@ async function start(){
     if(!navigator.mediaDevices?.getUserMedia)throw new Error('이 환경은 카메라를 지원하지 않습니다. 최신 Chrome 또는 삼성 인터넷에서 직접 열어 주세요.');
     const candidate=await acquireCamera();if(run!==generation){candidate.getTracks().forEach(t=>t.stop());return;}
     stream=candidate;const video=el('video');video.muted=true;video.srcObject=stream;video.hidden=false;await video.play();
-    const focused=await tuneFocus(stream.getVideoTracks()[0]);if(run!==generation)return;
-    message(focused?'자동초점으로 맞추는 중입니다. QR을 화면 가운데 두세요. 너무 가까우면 조금 떨어뜨려 주세요.':'QR을 화면 가운데 두고, 흐리면 휴대폰을 조금 떨어뜨려 주세요.');
-    let frameNumber=0;const tick=()=>{if(run!==generation)return;try{if(video.readyState>=2&&video.videoWidth){const crop=(frameNumber++%2)?0.7:1,sw=video.videoWidth*crop,sh=video.videoHeight*crop,sx=(video.videoWidth-sw)/2,sy=(video.videoHeight-sh)/2,scale=Math.min(1,1280/sw);canvas.width=Math.round(sw*scale);canvas.height=Math.round(sh*scale);ctx.drawImage(video,sx,sy,sw,sh,0,0,canvas.width,canvas.height);const image=ctx.getImageData(0,0,canvas.width,canvas.height);const code=jsQR(image.data,image.width,image.height,{inversionAttempts:'attemptBoth'});if(code&&found(code.data))return;}}catch(error){stop();message('QR 인식기를 실행하지 못했습니다. 페이지를 새로고침해 주세요.');return;}if(run===generation)setTimeout(tick,180);};tick();
+    if(run!==generation)return;
+    message('QR을 화면 가운데 두세요. 화면을 누르면 초점을 다시 맞춥니다.');
+    // Focus and native detection must never hold up the fallback scan loop.
+    void tuneFocus(stream.getVideoTracks()[0]);
+    let detector=null,nativeBusy=false,frameNumber=0;
+    void createNativeDetector().then(value=>{if(run===generation)detector=value;});
+    const tick=()=>{
+      if(run!==generation)return;
+      if(video.readyState>=2&&video.videoWidth&&video.videoHeight){
+        if(detector&&!nativeBusy){
+          const active=detector;nativeBusy=true;
+          Promise.resolve().then(()=>active.detect(video)).then(codes=>{
+            if(run!==generation)return;
+            for(const code of codes){if(found(code.rawValue))break;}
+          }).catch(()=>{if(detector===active)detector=null;}).finally(()=>{nativeBusy=false;});
+        }
+        try{
+          if(ctx&&typeof jsQR==='function'){
+            const crop=[1,0.7,0.45][frameNumber++%3],sw=video.videoWidth*crop,sh=video.videoHeight*crop;
+            const scale=Math.min(1,1600/sw);
+            canvas.width=Math.max(1,Math.round(sw*scale));canvas.height=Math.max(1,Math.round(sh*scale));
+            ctx.drawImage(video,(video.videoWidth-sw)/2,(video.videoHeight-sh)/2,sw,sh,0,0,canvas.width,canvas.height);
+            const image=ctx.getImageData(0,0,canvas.width,canvas.height);
+            const code=jsQR(image.data,image.width,image.height,{inversionAttempts:'attemptBoth'});
+            if(code&&found(code.data))return;
+          }
+        }catch(error){
+          // A bad video frame must not permanently stop recognition.
+          console.warn('QR frame skipped',error);
+        }
+      }
+      if(run===generation)setTimeout(tick,180);
+    };
+    tick();
   }catch(error){if(run===generation){stop();message(cameraError(error));}}
 }
 el('video').addEventListener('click',async()=>{if(!stream||navigating)return;const active=stream,ok=await tuneFocus(active.getVideoTracks()[0],true);if(stream===active)message(ok?'초점을 다시 맞추고 있습니다. 잠시 움직이지 말아 주세요.':'흐리면 QR에서 조금 떨어뜨린 뒤 천천히 가까이 가져가 주세요.');});
@@ -60,4 +98,4 @@ el('start').onclick=start;el('stop').onclick=stop;
 el('lookup').onclick=()=>{try{navigateAsset(el('code').value);}catch(error){message(error.message);}};
 el('code').addEventListener('input',()=>{clearTimeout(inputTimer);const code=formatManagementInput(el('code'));if(code&&/^[A-Z]{1,2}-\d{2}-\d{4}-\d{4}$/.test(code))inputTimer=setTimeout(()=>navigateAsset(code),650);});
 el('code').addEventListener('keydown',e=>{if(e.key==='Enter')el('lookup').click();});
-window.addEventListener('pagehide',()=>{clearTimeout(inputTimer);stop();});window.addEventListener('pageshow',()=>{navigating=false;el('loading')?.remove();start();});document.addEventListener('visibilitychange',()=>{if(document.hidden){clearTimeout(inputTimer);stop();}});
+window.addEventListener('pagehide',()=>{clearTimeout(inputTimer);stop();});window.addEventListener('pageshow',()=>{navigating=false;el('loading')?.remove();start();});document.addEventListener('visibilitychange',()=>{if(document.hidden){clearTimeout(inputTimer);stop();}else if(!navigating&&!stream){start();}});
