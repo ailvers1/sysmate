@@ -8,6 +8,7 @@ function normalizeCode(value){const code=String(value||'').trim().toUpperCase();
 function assetUrl(code){const valid=normalizeCode(code);if(!valid)throw new Error('관리번호 형식을 확인해 주세요.');const url=new URL(APP_URL);url.searchParams.set('code',valid);return url.href;}
 function message(text){el('message').textContent=text;const footer=el('message').parentElement;if(footer)footer.hidden=!text;}
 function stop(){generation++;document.getElementById('focus-marker')?.remove();if(stream)stream.getTracks().forEach(t=>t.stop());stream=null;el('video').srcObject=null;el('video').hidden=true;el('stop').hidden=true;el('start').disabled=false;el('start').hidden=false;}
+function manualFallback(show){const box=document.querySelector('.manual');if(box)box.hidden=!show;}
 function cameraError(error){
   const policy=document.permissionsPolicy||document.featurePolicy;
   if(policy?.allowsFeature&&!policy.allowsFeature('camera'))return '이 페이지가 다른 앱이나 사이트 안에 삽입되어 카메라가 차단되었습니다. 스캔 페이지 주소를 Chrome 또는 삼성 인터넷의 새 탭에서 직접 열어 주세요.';
@@ -146,7 +147,7 @@ function scanRegion(video,frameNumber){
   return {sx:(video.videoWidth-width)/2,sy:(video.videoHeight-height)/2,width,height};
 }
 async function start(){
-  stop();const run=generation;el('start').disabled=true;el('stop').hidden=false;el('result').hidden=true;message('카메라를 여는 중입니다. 권한 요청이 나오면 허용해 주세요.');
+  manualFallback(false);stop();const run=generation;el('start').disabled=true;el('stop').hidden=false;el('result').hidden=true;message('카메라를 여는 중입니다. 권한 요청이 나오면 허용해 주세요.');
   try{
     if(!window.isSecureContext)throw new Error('HTTPS 주소에서 스캔 페이지를 열어 주세요.');
     const policy=document.permissionsPolicy||document.featurePolicy;
@@ -192,7 +193,7 @@ async function start(){
       if(run===generation)setTimeout(tick,180);
     };
     tick();
-  }catch(error){if(run===generation){stop();message(cameraError(error));}}
+  }catch(error){if(run===generation){stop();manualFallback(true);message(cameraError(error));}}
 }
 el('video').addEventListener('click',event=>{
   if(!stream||navigating)return;
@@ -207,6 +208,7 @@ el('lookup').onclick=()=>{try{navigateAsset(el('code').value);}catch(error){mess
 el('code').addEventListener('input',()=>{clearTimeout(inputTimer);const code=formatManagementInput(el('code'));if(code&&/^[A-Z]{1,2}-\d{2}-\d{4}-\d{4}$/.test(code))inputTimer=setTimeout(()=>navigateAsset(code),650);});
 el('code').addEventListener('keydown',e=>{if(e.key==='Enter')el('lookup').click();});
 window.addEventListener('pagehide',()=>{clearTimeout(inputTimer);stop();});window.addEventListener('pageshow',()=>{navigating=false;el('loading')?.remove();start();});document.addEventListener('visibilitychange',()=>{if(document.hidden){clearTimeout(inputTimer);stop();}else if(!navigating&&!stream){start();}});
+
 
 
 
